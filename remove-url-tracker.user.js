@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         移除 URL 追蹤
 // @namespace    https://chris.taipei
-// @version      0.1
+// @version      0.2
 // @description  自動移除 URL 中的追蹤參數，保護您的隱私（部分規則引用自 ClearURLs Project）
 // @author       chris1004tw
 // @match        *://*/*
@@ -46,6 +46,10 @@
         {
             pattern: /^https?:\/\/(?:[a-z0-9-]+\.)*?(?:taobao\.com|tmall\.com|tmall\.hk)/i,
             params: new Set(["ns", "source"])
+        },
+        {
+            pattern: /^https?:\/\/(?:[a-z0-9-]+\.)*?shopee\.[a-z.]+/i,
+            params: new Set(["seoName"])
         }
     ];
 

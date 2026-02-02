@@ -4,10 +4,16 @@
 
 1. 安裝 [Tampermonkey](https://www.tampermonkey.net/) 瀏覽器擴充套件（[Chrome](https://chromewebstore.google.com/detail/dhdgffkkebhmkfjojejmpbldmpobfkfo)、[Edge](https://microsoftedge.microsoft.com/addons/detail/iikmkjmpaadaobahmlepeloendndfphd)、[Firefox](https://addons.mozilla.org/en-US/firefox/addon/tampermonkey/)、[Safari](https://apps.apple.com/app/tampermonkey/id6738342400)、[Opera](https://addons.opera.com/en/extensions/details/tampermonkey-beta/)）
 2. **Chrome 用戶**：前往 `chrome://extensions/` 並開啟右上角的 **Developer mode**
-3. **Tampermonkey 設定**：進入 Tampermonkey Settings → 將 **Content Script API** 改為 **UserScripts API Dynamic**
-4. 點擊下方的 <kbd>Install</kbd> 連結即可安裝對應腳本
+3. **Tampermonkey 設定**：進入 Tampermonkey Settings → 將 **Config mode** 改為 **Advanced**
+4. 將 **Content Script API** 改為 **UserScripts API Dynamic**
+
+> ⚠️ 若未更改步驟 4 的設定，首次開啟 Chrome 的分頁將不會套用腳本，需手動重新整理頁面才會生效。
+
+5. 點擊下方的 <kbd>Install</kbd> 連結即可安裝對應腳本
 
 ## 通用
+
+> 以下腳本皆為**獨立運作**，可依需求個別安裝。
 
 | 名稱 | 說明 | 安裝 |
 | :--- | :--- | :--- |
@@ -24,7 +30,7 @@
 
 | 名稱 | 說明 | 安裝 |
 | :--- | :--- | :--- |
-| 替換字體為 AppleGothic | 將頁面字體改為 AppleGothic (簡體用 AppleGothicSC)<br/>還原字體替換對 Icon 的影響。<br/>支援黑名單管理，可針對特定網站停用。 | [Install](https://github.com/chris1004tw/userscripts/raw/main/force-fonts-applegothic.user.js) |
+| 替換字體為 AppleGothic | 將頁面字體改為 AppleGothic (簡體用 AppleGothicSC)<br/>還原字體因替換而對 Icon Font 造成的影響。<br/>程式碼區域使用 Cascadia Code 等寬字體。<br/>支援黑名單管理，可針對特定網站停用。 | [Install](https://github.com/chris1004tw/userscripts/raw/main/force-fonts-applegothic.user.js) |
 
 ---
 

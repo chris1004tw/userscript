@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         替換字體為 AppleGothic
 // @namespace    https://chris.taipei
-// @version      0.2
+// @version      0.3
 // @description  將頁面字體改為 AppleGothic（簡體用 AppleGothicSC），且還原字體替換對 Icon 的影響
 // @author       chris1004tw
 // @match        *://*/*
@@ -13,7 +13,7 @@
 // @updateURL    https://github.com/chris1004tw/userscripts/raw/main/force-fonts-applegothic.user.js
 // @downloadURL  https://github.com/chris1004tw/userscripts/raw/main/force-fonts-applegothic.user.js
 // ==/UserScript==
-// Co-authored with Claude Opus 4.5
+// Co-authored with Claude Opus 4.6 Thinking
 
 (function () {
     'use strict';
@@ -27,11 +27,14 @@
         // 解析 CSS font 字串，替換字體部分
         // font 格式: [font-style] [font-variant] [font-weight] font-size [/line-height] font-family
         // 例如: "12px Arial", "bold 14px sans-serif", "italic 12px/1.5 'Helvetica Neue'"
+        const fontSizeRegex = /(\d+(?:\.\d+)?(?:px|pt|em|rem|%|vh|vw|ex|ch|vmin|vmax))/i;
+        const lineHeightRegex = /^(\/[\d.]+(?:px|pt|em|rem|%)?)?/;
+
         function replaceFont(fontStr) {
             if (!fontStr) return `12px ${TARGET_FONT}`;
 
             // 找到 font-size 的位置（數字+單位）
-            const sizeMatch = fontStr.match(/(\d+(?:\.\d+)?(?:px|pt|em|rem|%|vh|vw|ex|ch|vmin|vmax))/i);
+            const sizeMatch = fontStr.match(fontSizeRegex);
             if (!sizeMatch) return fontStr; // 無法解析，返回原值
 
             const sizeIndex = fontStr.indexOf(sizeMatch[0]);
@@ -42,7 +45,7 @@
 
             // 檢查是否有 line-height（/後面的數字）
             const afterSize = fontStr.substring(sizeEnd);
-            const lineHeightMatch = afterSize.match(/^(\/[\d.]+(?:px|pt|em|rem|%)?)?/);
+            const lineHeightMatch = afterSize.match(lineHeightRegex);
             const lineHeight = lineHeightMatch ? lineHeightMatch[0] : '';
 
             return prefix + lineHeight + ' ' + TARGET_FONT;
@@ -118,19 +121,13 @@
             @font-face { font-family: 'AppleGothic'; src: local('AppleGothic'); }
             @font-face { font-family: 'AppleGothicSC'; src: local('AppleGothicSC'); }
 
-            /* 通配符強制套用所有元素（排除表單元素，由下方規則單獨處理）*/
-            /* data-no-font-parent: icon 元素的父元素，避免子元素繼承 AppleGothic */
-            /* 字體 stack 包含 Apple emoji/icon 字體作為 fallback，確保 SF Symbols 可顯示 */
-            /* 排除程式碼區域（code, pre, [data-hpc], react-code/blob 類別） */
-            html body *:not([data-no-font]):not([data-no-font-parent]):not([class*="icon"]):not([class*="Icon"]):not([class*="fa-"]):not([class*="material"]):not([class*="glyph"]):not([class*="symbol"]):not([class*="Symbol"]):not([data-icon]):not([class*="bx"]):not([class*="boxicon"]):not([class*="checkbox"]):not([class*="radio"]):not(input):not(select):not(textarea):not(button):not(code):not(pre):not(kbd):not(samp):not(tt):not([data-hpc]):not([class*="react-code"]):not([class*="react-blob"]):not([class*="blob-code"]):not([class*="blob-num"]):not([class*="highlight"]):not([class*="CodeMirror"]):not([class*="monaco"]):not([class*="pl-"]) {
-                font-family: AppleGothic, AppleGothicSC, "Apple Monochrome Emoji Ind", "SF Pro Icons", "SF Pro Text", sans-serif !important;
-            }
-
-            /* GitHub 程式碼區域 - 使用 Cascadia Code 等寬字體 */
+            /* 程式碼區域 - Cascadia Code 等寬字體（先宣告） */
+            /* 廣泛子代選擇器用 :where() 包裹，避免非程式碼子元素被套用 monospace */
+            :where([data-hpc="true"] *),
+            :where(.react-code-lines *),
+            :where(.blob-code *),
             [data-hpc="true"],
-            [data-hpc="true"] *,
             .react-code-lines,
-            .react-code-lines *,
             .react-code-text,
             .react-file-line,
             .react-line-number,
@@ -138,7 +135,6 @@
             [class*="react-blob"],
             [class*="pl-"],
             .blob-code,
-            .blob-code *,
             .blob-num,
             .highlight pre,
             .highlight code,
@@ -148,6 +144,12 @@
             samp,
             tt {
                 font-family: "Cascadia Code", "Cascadia Mono", Consolas, "SF Mono", "JetBrains Mono", monospace, AppleGothic, AppleGothicSC !important;
+            }
+
+            /* 主規則：:where() 使特異性歸零（後宣告，同特異性時覆蓋程式碼區域的 :where() 子代選擇器） */
+            /* 移除程式碼相關 :not()，靠宣告順序處理，減少 14 個 :not() 條件 */
+            :where(html body *:not([data-no-font]):not([data-no-font-parent]):not([class*="icon"]):not([class*="Icon"]):not([class*="fa-"]):not([class*="material"]):not([class*="glyph"]):not([class*="symbol"]):not([class*="Symbol"]):not([data-icon]):not([class*="bx"]):not([class*="boxicon"]):not([class*="checkbox"]):not([class*="radio"]):not(input):not(select):not(textarea):not(button)) {
+                font-family: AppleGothic, AppleGothicSC, "Apple Monochrome Emoji Ind", "SF Pro Icons", "SF Pro Text", sans-serif !important;
             }
 
             /* 表單元素額外強制（排除 checkbox/radio，因為它們常用 icon 字體顯示勾選狀態）*/
@@ -165,39 +167,34 @@
     const iconPrefixPattern = /^(fa|fas|far|fal|fad|fab|bi|ri|mdi|mi|oi|ti|si|gi|ai|di|fi|hi|pi|vi|wi|ci|bx|bxs|bxl)-/;
     const checkboxRadioPattern = /checkbox|radio/i;
     const selector = 'p,span,a,h1,h2,h3,h4,h5,h6,li,td,th,label,article,blockquote,figcaption,cite,div';
+    // 排除自訂字體檢測時的白名單（我們自己定義的 @font-face）
+    const ourFonts = new Set(['AppleGothic', 'AppleGothicSC']);
     let processed = new WeakSet();
 
     // ===== 狀態重置（供重新掃描使用）=====
     function resetState() {
-        // 移除所有 data-no-font 和 data-no-font-parent 屬性
-        document.querySelectorAll('[data-no-font]').forEach(el => el.removeAttribute('data-no-font'));
-        document.querySelectorAll('[data-no-font-parent]').forEach(el => el.removeAttribute('data-no-font-parent'));
+        // 移除所有 data-no-font 和 data-no-font-parent 屬性（合併為單次查詢）
+        document.querySelectorAll('[data-no-font], [data-no-font-parent]').forEach(el => {
+            el.removeAttribute('data-no-font');
+            el.removeAttribute('data-no-font-parent');
+        });
         processed = new WeakSet();
     }
 
     function forceRescan() {
         resetState();
         const els = document.querySelectorAll(selector);
-        let stats = { total: els.length, iconMarked: 0, inlineOverride: 0 };
+        let iconMarked = 0, inlineOverride = 0;
         for (let i = 0; i < els.length; i++) {
-            const el = els[i];
-            if (isIconElement(el)) {
-                el.setAttribute('data-no-font', '');
-                // 標記父元素，打破 CSS 繼承鏈
-                if (el.parentElement && el.parentElement !== document.body) {
-                    el.parentElement.setAttribute('data-no-font-parent', '');
-                }
-                stats.iconMarked++;
-            } else if (!shouldSkipElement(el) && el.style.fontFamily) {
-                el.style.setProperty('font-family', TARGET_FONT, 'important');
-                stats.inlineOverride++;
-            }
+            const result = processElement(els[i]);
+            if (result === RESULT_ICON) iconMarked++;
+            else if (result === RESULT_OVERRIDE) inlineOverride++;
         }
         alert('[強制字體] 掃描完成:\n' +
-            '總元素: ' + stats.total + '\n' +
-            '標記為 icon: ' + stats.iconMarked + '\n' +
-            'Inline style 覆蓋: ' + stats.inlineOverride + '\n' +
-            '套用字體: ' + (stats.total - stats.iconMarked));
+            '總元素: ' + els.length + '\n' +
+            '標記為 icon: ' + iconMarked + '\n' +
+            'Inline style 覆蓋: ' + inlineOverride + '\n' +
+            '套用字體: ' + (els.length - iconMarked));
     }
 
     // ===== Emoji 檢測（用於排除標準 emoji 被誤判為 icon）=====
@@ -284,8 +281,24 @@
         return false;
     }
 
+    // ===== 自訂 @font-face 檢測（避免覆蓋反爬蟲字體導致亂碼）=====
+    function isCustomWebFont(fontFamilyStr) {
+        if (!document.fonts) return false;
+        const firstName = fontFamilyStr.split(',')[0].trim().replace(/['"]/g, '');
+        // 排除我們自己定義的字體
+        if (ourFonts.has(firstName)) return false;
+        for (const face of document.fonts) {
+            if (face.family.replace(/['"]/g, '') === firstName) return true;
+        }
+        return false;
+    }
+
+    // 處理結果常數（供 forceRescan 統計使用）
+    const RESULT_ICON = 1;
+    const RESULT_OVERRIDE = 2;
+
     function processElement(el) {
-        if (processed.has(el)) return;
+        if (processed.has(el)) return 0;
         processed.add(el);
 
         // 1. 如果是 icon 元素，標記並跳過
@@ -295,31 +308,35 @@
             if (el.parentElement && el.parentElement !== document.body) {
                 el.parentElement.setAttribute('data-no-font-parent', '');
             }
-            return;
+            return RESULT_ICON;
         }
 
         // 2. 如果是需要跳過的表單元素，跳過
-        if (shouldSkipElement(el)) return;
+        if (shouldSkipElement(el)) return 0;
 
-        // 3. 如果有 inline style 設定 font-family，用 JS 覆蓋
+        // 3. 如果有 inline style 設定 font-family
         if (el.style.fontFamily) {
+            // 若為自訂 @font-face（如淘寶反爬蟲字體），標記排除避免亂碼
+            if (isCustomWebFont(el.style.fontFamily)) {
+                el.setAttribute('data-no-font', '');
+                return 0;
+            }
             el.style.setProperty('font-family', TARGET_FONT, 'important');
+            return RESULT_OVERRIDE;
         }
+
+        return 0;
     }
 
     // ===== 分批處理 =====
     const CHUNK_SIZE = 300;
 
-    function processInChunks(els, callback) {
+    function processInChunks(els) {
         const len = els.length;
-        if (len === 0) {
-            if (callback) callback();
-            return;
-        }
+        if (len === 0) return;
 
         if (len < 1000) {
             for (let i = 0; i < len; i++) processElement(els[i]);
-            if (callback) callback();
             return;
         }
 
@@ -327,11 +344,7 @@
         function step() {
             const end = Math.min(i + CHUNK_SIZE, len);
             while (i < end) processElement(els[i++]);
-            if (i < len) {
-                requestAnimationFrame(step);
-            } else if (callback) {
-                callback();
-            }
+            if (i < len) requestAnimationFrame(step);
         }
         requestAnimationFrame(step);
     }
@@ -390,10 +403,12 @@
         let scheduled = false;
 
         function flush() {
-            const q = Array.from(queue);
-            queue.clear();
+            // 直接迭代 Set，避免建立中間陣列
+            // MutationObserver 批次通常較小，無需分批處理
+            const batch = queue;
+            queue = new Set();
             scheduled = false;
-            processInChunks(q);
+            for (const el of batch) processElement(el);
         }
 
         new MutationObserver(mutations => {

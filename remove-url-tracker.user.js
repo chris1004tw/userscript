@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         移除 URL 追蹤
 // @namespace    https://chris.taipei
-// @version      0.2
+// @version      0.3
 // @description  自動移除 URL 中的追蹤參數，保護您的隱私（部分規則引用自 ClearURLs Project）
 // @author       chris1004tw
 // @match        *://*/*
@@ -13,7 +13,7 @@
 // @updateURL    https://github.com/chris1004tw/userscripts/raw/main/remove-url-tracker.user.js
 // @downloadURL  https://github.com/chris1004tw/userscripts/raw/main/remove-url-tracker.user.js
 // ==/UserScript==
-// Co-authored with Claude Opus 4.5
+// Co-authored with Claude Opus 4.6
 
 (function () {
     'use strict';
@@ -90,36 +90,36 @@
             const keys = [...params.keys()];
             if (keys.length === 0) return null;
 
+            // 預先收集匹配此 URL 的特定網域參數
+            const matchedSiteParams = new Set();
+            for (const rule of SITE_RULES) {
+                if (!rule.pattern.test(url)) continue;
+                if (rule.except?.some(ex => ex.test(url))) continue;
+                for (const p of rule.params) matchedSiteParams.add(p);
+            }
+
+            // 預先收集匹配此 URL 的遠端規則
+            const matchedRemoteStrings = new Set();
+            const matchedRemoteRegexes = [];
+            for (const provider of remoteRules) {
+                if (!provider.pattern.test(url)) continue;
+                if (provider.exceptions?.some(ex => ex.test(url))) continue;
+                for (const s of provider.stringRules) matchedRemoteStrings.add(s);
+                matchedRemoteRegexes.push(...provider.regexRules);
+            }
+
             let changed = false;
 
             for (const key of keys) {
-                // 通用規則（直接套用，不需 pattern 匹配）
-                if (GENERAL_STRING_PARAMS.has(key) || GENERAL_REGEX_PARAMS.some(r => r.test(key))) {
+                if (
+                    GENERAL_STRING_PARAMS.has(key) ||
+                    matchedSiteParams.has(key) ||
+                    matchedRemoteStrings.has(key) ||
+                    GENERAL_REGEX_PARAMS.some(r => r.test(key)) ||
+                    matchedRemoteRegexes.some(r => r.test(key))
+                ) {
                     params.delete(key);
                     changed = true;
-                    continue;
-                }
-
-                // 特定網域規則
-                for (const rule of SITE_RULES) {
-                    if (!rule.pattern.test(url)) continue;
-                    if (rule.except?.some(ex => ex.test(url))) continue;
-                    if (rule.params.has(key)) {
-                        params.delete(key);
-                        changed = true;
-                        break;
-                    }
-                }
-
-                // 遠端規則（已預編譯）
-                for (const provider of remoteRules) {
-                    if (!provider.pattern.test(url)) continue;
-                    if (provider.exceptions?.some(ex => ex.test(url))) continue;
-                    if (provider.stringRules.has(key) || provider.regexRules.some(r => r.test(key))) {
-                        params.delete(key);
-                        changed = true;
-                        break;
-                    }
                 }
             }
 

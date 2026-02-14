@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         複製當前網址
 // @namespace    https://chris.taipei
-// @version      0.3
+// @version      0.4
 // @description  按下 Ctrl+Shift+C 複製當前網址（X/Twitter 轉 fxTwitter，PChome 轉 Pancake，Shopee 轉短網址）
 // @author       chris1004tw
 // @match        *://*/*
@@ -10,7 +10,7 @@
 // @updateURL    https://github.com/chris1004tw/userscripts/raw/main/copy-current-url.user.js
 // @downloadURL  https://github.com/chris1004tw/userscripts/raw/main/copy-current-url.user.js
 // ==/UserScript==
-// Co-authored with Claude Opus 4.5
+// Co-authored with Claude Opus 4.6 Thinking
 // Shopee 短網址轉換參考自 https://github.com/gnehs/userscripts
 // PChome 短網址服務由 https://p.pancake.tw/ 提供
 // X/Twitter 短網址服務由 https://fxtwitter.com/ 提供
@@ -18,8 +18,20 @@
 (function () {
     'use strict';
 
+    // X/Twitter 功能的延遲常數
+    const DELAY_INITIAL = 1000;
+    const DELAY_RETRY = 2000;
+    const DELAY_DEBOUNCE = 500;
+    const NOTIFICATION_DURATION = 2000;
+
+    // debounce 計時器（閉包變數，避免全域汙染）
+    let fxTwitterTimeout;
+
     // 只在主框架執行，避免 iframe 內重複顯示通知
-    if (window.self !== window.top) {
+    try {
+        if (window.self !== window.top) return;
+    } catch {
+        // 跨域 iframe 中存取 window.top 可能拋出 SecurityError，視為 iframe 跳過
         return;
     }
 
@@ -30,13 +42,20 @@
                 resolve();
                 return;
             }
+            let timeoutId;
             const observer = new MutationObserver(() => {
                 if (document.body) {
+                    clearTimeout(timeoutId);
                     observer.disconnect();
                     resolve();
                 }
             });
             observer.observe(document.documentElement, { childList: true });
+
+            timeoutId = setTimeout(() => {
+                observer.disconnect();
+                resolve();
+            }, 5000);
         });
     }
 
@@ -89,7 +108,7 @@
                 font-size: 14px !important;
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
                 box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
-                animation: copyUrlFadeInOut 2s ease-in-out !important;
+                animation: copyUrlFadeInOut ${NOTIFICATION_DURATION / 1000}s ease-in-out !important;
                 max-width: 400px !important;
                 pointer-events: none !important;
             `;
@@ -99,7 +118,7 @@
                 if (notification.parentNode) {
                     notification.remove();
                 }
-            }, 2000);
+            }, NOTIFICATION_DURATION);
         } catch (err) {
             // 通知顯示失敗不影響複製功能
             console.warn('[Copy URL] 通知顯示失敗:', err);
@@ -129,11 +148,10 @@
     // 將 Shopee 網址轉換為短網址
     // 參考自 https://github.com/gnehs/userscripts
     function convertToShopeeShort(url) {
-        const parser = document.createElement('a');
-        parser.href = url;
+        const parsed = new URL(url);
 
         // 取路徑最後一段，以 - 分隔
-        const pathParts = parser.pathname.split('-');
+        const pathParts = parsed.pathname.split('-');
         const lastPart = pathParts[pathParts.length - 1];
 
         // 檢查是否為 i.shopId.itemId 格式
@@ -197,6 +215,10 @@
     }
 
     // 創建內嵌按鈕（模仿 X.com 分享按鈕樣式）
+    const BUTTON_COLOR = 'rgb(113, 118, 123)';
+    const BUTTON_HOVER_COLOR = 'rgb(29, 155, 240)';
+    const BUTTON_HOVER_BG = 'rgba(29, 155, 240, 0.1)';
+
     function createInlineButton() {
         const outerContainer = document.createElement('div');
         outerContainer.setAttribute('class', 'css-175oi2r');
@@ -217,7 +239,7 @@
         const buttonContent = document.createElement('div');
         buttonContent.setAttribute('dir', 'ltr');
         buttonContent.setAttribute('class', 'css-146c3p1 r-bcqeeo r-1ttztb7 r-qvutc0 r-37j5jr r-a023e6 r-rjixqe r-16dba41 r-1awozwy r-6koalj r-1h0z5md r-o7ynqc r-clp7b1 r-3s2u2q');
-        buttonContent.style.color = 'rgb(113, 118, 123)';
+        buttonContent.style.color = BUTTON_COLOR;
 
         const iconContainer = document.createElement('div');
         iconContainer.setAttribute('class', 'css-175oi2r r-xoduu5');
@@ -245,11 +267,11 @@
 
         // 懸停效果
         button.addEventListener('mouseenter', () => {
-            buttonContent.style.color = 'rgb(29, 155, 240)';
-            iconBackground.style.backgroundColor = 'rgba(29, 155, 240, 0.1)';
+            buttonContent.style.color = BUTTON_HOVER_COLOR;
+            iconBackground.style.backgroundColor = BUTTON_HOVER_BG;
         });
         button.addEventListener('mouseleave', () => {
-            buttonContent.style.color = 'rgb(113, 118, 123)';
+            buttonContent.style.color = BUTTON_COLOR;
             iconBackground.style.backgroundColor = '';
         });
 
@@ -257,13 +279,15 @@
     }
 
     // 添加按鈕到推文操作區域
+    const processedGroups = new WeakSet();
+
     function addButtonToTweets() {
         if (!isStatusPage()) return;
 
         const actionGroups = document.querySelectorAll('div[role="group"]');
 
         actionGroups.forEach(group => {
-            if (group.querySelector('#fxtwitter-copy-container')) return;
+            if (processedGroups.has(group)) return;
 
             const hasReply = group.querySelector('[data-testid="reply"]');
             const hasRetweet = group.querySelector('[data-testid="retweet"]');
@@ -282,34 +306,36 @@
                 });
                 group.appendChild(buttonContainer);
             }
+
+            processedGroups.add(group);
         });
     }
 
     // 初始化 X/Twitter 專屬功能
     function initXTwitterFeatures() {
         // 初始添加按鈕
-        setTimeout(addButtonToTweets, 1000);
-        setTimeout(addButtonToTweets, 2000);
+        setTimeout(addButtonToTweets, DELAY_INITIAL);
+        setTimeout(addButtonToTweets, DELAY_RETRY);
 
         // MutationObserver 監聽頁面變化
         const observer = new MutationObserver((mutations) => {
             let shouldUpdate = false;
-            mutations.forEach((mutation) => {
-                if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-                    mutation.addedNodes.forEach((node) => {
-                        if (node.nodeType === Node.ELEMENT_NODE) {
-                            if (node.tagName === 'ARTICLE' ||
-                                (node.querySelector && node.querySelector('article'))) {
-                                shouldUpdate = true;
-                            }
-                        }
-                    });
+            for (const mutation of mutations) {
+                if (mutation.type !== 'childList') continue;
+                for (const node of mutation.addedNodes) {
+                    if (node.nodeType !== Node.ELEMENT_NODE) continue;
+                    if (node.tagName === 'ARTICLE' ||
+                        node.querySelector?.('article')) {
+                        shouldUpdate = true;
+                        break;
+                    }
                 }
-            });
+                if (shouldUpdate) break;
+            }
 
             if (shouldUpdate) {
-                clearTimeout(window.fxTwitterTimeout);
-                window.fxTwitterTimeout = setTimeout(addButtonToTweets, 500);
+                clearTimeout(fxTwitterTimeout);
+                fxTwitterTimeout = setTimeout(addButtonToTweets, DELAY_DEBOUNCE);
             }
         });
 
@@ -318,15 +344,34 @@
             subtree: true
         });
 
-        // 監聽 URL 變化（SPA）
+        // 攔截 history API 偵測 SPA 導航（取代 setInterval 輪詢）
         let lastUrl = location.href;
-        setInterval(() => {
-            const url = location.href;
-            if (url !== lastUrl) {
-                lastUrl = url;
-                setTimeout(addButtonToTweets, 1000);
+        const originalPushState = history.pushState;
+        const originalReplaceState = history.replaceState;
+
+        function onUrlChange() {
+            if (location.href !== lastUrl) {
+                lastUrl = location.href;
+                setTimeout(addButtonToTweets, DELAY_DEBOUNCE);
             }
-        }, 1000);
+        }
+
+        history.pushState = function (...args) {
+            originalPushState.apply(this, args);
+            onUrlChange();
+        };
+
+        history.replaceState = function (...args) {
+            originalReplaceState.apply(this, args);
+            onUrlChange();
+        };
+
+        window.addEventListener('popstate', onUrlChange);
+
+        // 頁面卸載時清理 MutationObserver
+        window.addEventListener('beforeunload', () => {
+            observer.disconnect();
+        });
     }
 
     // ========== 初始化 ==========

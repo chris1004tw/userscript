@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Gemini 固定使用模型
 // @namespace    https://chris.taipei
-// @version      0.2
+// @version      0.3
 // @description  自動將 Gemini 模型切換為 Pro，並提供選單固定切換模型
 // @author       chris1004tw
 // @match        https://gemini.google.com/*
@@ -12,7 +12,7 @@
 // @updateURL    https://github.com/chris1004tw/userscripts/raw/main/gemini-fixed-mode.user.js
 // @downloadURL  https://github.com/chris1004tw/userscripts/raw/main/gemini-fixed-mode.user.js
 // ==/UserScript==
-// Co-authored with Claude Opus 4.6
+// Co-authored with Claude Opus 4.6 Thinking
 
 (function() {
     'use strict';
@@ -33,27 +33,25 @@
             const existing = document.querySelector(selector);
             if (existing) { resolve(existing); return; }
 
-            let settled = false;
+            let timeoutId;
             const observer = new MutationObserver(() => {
                 const el = document.querySelector(selector);
                 if (el) {
-                    settled = true;
+                    clearTimeout(timeoutId);
                     observer.disconnect();
                     resolve(el);
                 }
             });
             observer.observe(document.body, { childList: true, subtree: true });
 
-            setTimeout(() => {
-                if (!settled) {
-                    observer.disconnect();
-                    resolve(null);
-                }
+            timeoutId = setTimeout(() => {
+                observer.disconnect();
+                resolve(null);
             }, timeout);
         });
     }
 
-    function getSelectedMode() {
+    function getSavedModeKey() {
         return GM_getValue('selectedMode', DEFAULT_MODE);
     }
 
@@ -68,7 +66,7 @@
     }
 
     function getCurrentMode() {
-        const key = getSelectedMode();
+        const key = getSavedModeKey();
         return MODES.find(m => m.key === key) || MODES[0];
     }
 
@@ -82,7 +80,7 @@
             return true;
         }
         // 找不到選項時關閉選單
-        document.body.click();
+        document.body?.click();
         console.log(`[Gemini] 找不到 ${mode.name} 選項`);
         return false;
     }
@@ -151,14 +149,26 @@
         let switching = false;
         let debounceTimer = null;
 
-        // 監聯 URL 變化（SPA 導航）
-        const observer = new MutationObserver(() => {
+        // 監聽 DOM 變化（SPA 導航 + 偵測切換按鈕出現）
+        const observer = new MutationObserver((mutations) => {
             if (location.href !== lastUrl) {
                 lastUrl = location.href;
                 switching = false; // 重設狀態，允許再次切換
             }
 
             if (switching) return;
+
+            // 快速路徑：只在有新增元素節點時才觸發
+            let hasNewElements = false;
+            for (const m of mutations) {
+                if (m.addedNodes.length > 0) {
+                    for (const node of m.addedNodes) {
+                        if (node.nodeType === 1) { hasNewElements = true; break; }
+                    }
+                    if (hasNewElements) break;
+                }
+            }
+            if (!hasNewElements) return;
 
             // debounce：避免短時間內大量觸發
             clearTimeout(debounceTimer);
@@ -174,6 +184,12 @@
         observer.observe(document.body, {
             childList: true,
             subtree: true
+        });
+
+        // 頁面卸載時清理
+        window.addEventListener('beforeunload', () => {
+            observer.disconnect();
+            clearTimeout(debounceTimer);
         });
 
         // 初始載入：等待切換按鈕出現

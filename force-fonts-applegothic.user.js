@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         替換字體為 AppleGothic
 // @namespace    https://chris.taipei
-// @version      0.3.2
+// @version      0.4
 // @description  將頁面字體改為 AppleGothic（簡體用 AppleGothicSC），且還原字體替換對 Icon 的影響
 // @author       chris1004tw
 // @match        *://*/*
@@ -166,7 +166,7 @@
     const iconFontPattern = /icon|iconfont|icomoon|fontawesome|material|glyph|symbol|boxicon/i;
     const iconPrefixPattern = /^(fa|fas|far|fal|fad|fab|bi|ri|mdi|mi|oi|ti|si|gi|ai|di|fi|hi|pi|vi|wi|ci|bx|bxs|bxl)-/;
     const checkboxRadioPattern = /checkbox|radio/i;
-    const selector = 'p,span,a,h1,h2,h3,h4,h5,h6,li,td,th,label,article,blockquote,figcaption,cite,div';
+    const TEXT_ELEMENT_SELECTOR = 'p,span,a,h1,h2,h3,h4,h5,h6,li,td,th,label,article,blockquote,figcaption,cite,div';
     // 排除自訂字體檢測時的白名單（我們自己定義的 @font-face）
     const ourFonts = new Set(['AppleGothic', 'AppleGothicSC']);
     let processed = new WeakSet();
@@ -179,11 +179,12 @@
             el.removeAttribute('data-no-font-parent');
         });
         processed = new WeakSet();
+        webFontCache = null;
     }
 
     function forceRescan() {
         resetState();
-        const els = document.querySelectorAll(selector);
+        const els = document.querySelectorAll(TEXT_ELEMENT_SELECTOR);
         let iconMarked = 0, inlineOverride = 0;
         for (let i = 0; i < els.length; i++) {
             const result = processElement(els[i]);
@@ -214,30 +215,30 @@
     }
 
     // ===== Icon 檢測 =====
-    function isIconElement(el) {
-        // 1. 檢查 class（用詞邊界避免誤判）
-        const cls = el.className;
-        if (cls && typeof cls === 'string') {
-            if (iconClassPattern.test(cls)) return true;
-        }
 
-        // 2. 檢查 icon prefix class（fa-, mdi-, bi- 等）
+    // 1. 檢查 class 名稱（用詞邊界避免誤判，如 "lexicon" 不應匹配 "icon"）
+    function hasIconClass(el) {
+        const cls = el.className;
+        if (cls && typeof cls === 'string' && iconClassPattern.test(cls)) return true;
         const classList = el.classList;
         if (classList) {
             for (let i = 0; i < classList.length; i++) {
                 if (iconPrefixPattern.test(classList[i])) return true;
             }
         }
+        return false;
+    }
 
-        // 3. 檢查屬性（快速檢查）
-        // aria-hidden="true" 需要排除標準 emoji（U+1F000+），因為 emoji 選擇器也用這個屬性
-        if (el.getAttribute('aria-hidden') === 'true') {
-            if (!containsStandardEmoji(el)) return true;
-        }
+    // 2. 檢查 icon 相關屬性（aria-hidden, role=img, data-icon）
+    function hasIconAttribute(el) {
+        if (el.getAttribute('aria-hidden') === 'true' && !containsStandardEmoji(el)) return true;
         if (el.getAttribute('role') === 'img') return true;
         if (el.hasAttribute('data-icon')) return true;
+        return false;
+    }
 
-        // 4. 檢查 Unicode icon 文字（PUA 區域）
+    // 3. 檢查 Unicode Private Use Area 文字（icon 字體常用）
+    function hasPuaText(el) {
         const nodes = el.childNodes;
         for (let i = 0; i < nodes.length; i++) {
             const node = nodes[i];
@@ -245,25 +246,32 @@
                 const t = node.textContent.trim();
                 if (t.length > 0 && t.length <= 2) {
                     const code = t.charCodeAt(0);
-                    // 只檢測 PUA 區塊，不再檢測 U+2600-U+27BF（常用符號如 ★☆♥）
-                    if (code >= 0xE000 && code <= 0xF8FF) {
-                        return true;
-                    }
+                    if (code >= 0xE000 && code <= 0xF8FF) return true;
                 }
             }
         }
+        return false;
+    }
 
-        // 5. 檢查 font-family（最昂貴的操作，放最後）
+    // 4. 檢查 font-family 是否為 icon 字體（最昂貴的操作）
+    function hasIconFont(el) {
         try {
             const fontFam = getComputedStyle(el).fontFamily;
-            // 排除 Apple 系統字體（SF Pro Icons 包含 "icon" 會誤判）
             if (fontFam.includes('SF Pro')) return false;
             if (iconFontPattern.test(fontFam)) return true;
-        } catch (e) {
-            // 元素可能已從 DOM 移除或不可見，忽略錯誤
-        }
-
+        } catch { }
         return false;
+    }
+
+    // 主函式：漸進式 icon 檢測管線（快→慢）
+    function isIconElement(el) {
+        if (hasIconClass(el)) return true;
+        if (hasIconAttribute(el)) return true;
+        if (hasPuaText(el)) return true;
+        // 快速路徑：文字內容超過 2 字元的元素幾乎不是 icon，跳過昂貴的 getComputedStyle
+        const text = el.textContent;
+        if (text && text.length > 2) return false;
+        return hasIconFont(el);
     }
 
     // 需要排除的表單元素
@@ -282,20 +290,49 @@
     }
 
     // ===== 自訂 @font-face 檢測（避免覆蓋反爬蟲字體導致亂碼）=====
-    function isCustomWebFont(fontFamilyStr) {
-        if (!document.fonts) return false;
-        const firstName = fontFamilyStr.split(',')[0].trim().replace(/['"]/g, '');
-        // 排除我們自己定義的字體
-        if (ourFonts.has(firstName)) return false;
-        for (const face of document.fonts) {
-            if (face.family.replace(/['"]/g, '') === firstName) return true;
+    let webFontCache = null;
+
+    function getWebFontNames() {
+        if (webFontCache) return webFontCache;
+        webFontCache = new Set();
+        if (document.fonts) {
+            for (const face of document.fonts) {
+                webFontCache.add(face.family.replace(/['"]/g, ''));
+            }
         }
-        return false;
+        return webFontCache;
+    }
+
+    function isCustomWebFont(fontFamilyStr) {
+        const firstName = fontFamilyStr.split(',')[0].trim().replace(/['"]/g, '');
+        if (ourFonts.has(firstName)) return false;
+        return getWebFontNames().has(firstName);
     }
 
     // 處理結果常數（供 forceRescan 統計使用）
     const RESULT_ICON = 1;
     const RESULT_OVERRIDE = 2;
+
+    // 對有 inline font-family 的父元素，子元素也強制套用 inline font-family
+    // 避免頁面 CSS 的 !important 規則覆蓋 :where() 零特異性選擇器
+    function overrideDescendants(parent) {
+        const children = parent.querySelectorAll(TEXT_ELEMENT_SELECTOR);
+        for (let i = 0; i < children.length; i++) {
+            const child = children[i];
+            if (processed.has(child)) continue;
+            processed.add(child);
+            if (isIconElement(child)) {
+                child.setAttribute('data-no-font', '');
+                continue;
+            }
+            if (shouldSkipElement(child)) continue;
+            if (child.style.fontFamily && isCustomWebFont(child.style.fontFamily)) {
+                child.setAttribute('data-no-font', '');
+                continue;
+            }
+            child.style.setProperty('font-family', TARGET_FONT, 'important');
+        }
+    }
 
     function processElement(el) {
         if (processed.has(el)) return 0;
@@ -317,12 +354,16 @@
         // 3. 如果有任何 inline style（包含沒設 font-family 的情況）
         // inline !important 能打贏所有 CSS !important 規則，確保 CMS 生成的內容也被覆蓋
         if (el.hasAttribute('style')) {
+            const originalFontFamily = el.style.fontFamily;
             // 若已有 font-family 且為自訂 @font-face（如淘寶反爬蟲字體），標記排除避免亂碼
-            if (el.style.fontFamily && isCustomWebFont(el.style.fontFamily)) {
+            if (originalFontFamily && isCustomWebFont(originalFontFamily)) {
                 el.setAttribute('data-no-font', '');
                 return 0;
             }
             el.style.setProperty('font-family', TARGET_FONT, 'important');
+            // 子元素可能被頁面 CSS 的 !important 規則（如 .ipmImport *）覆蓋
+            // :where() 零特異性選擇器無法勝出，需對子元素也套用 inline 覆蓋
+            overrideDescendants(el);
             return RESULT_OVERRIDE;
         }
 
@@ -376,7 +417,7 @@
         }
 
         // 2. 再處理其他元素
-        const els = document.querySelectorAll(selector);
+        const els = document.querySelectorAll(TEXT_ELEMENT_SELECTOR);
         processInChunks(els);
     }
 
@@ -403,18 +444,32 @@
 
         let queue = new Set();
         let scheduled = false;
+        const BATCH_SIZE = 100;
 
         function flush() {
-            // 直接迭代 Set，避免建立中間陣列
-            // MutationObserver 批次通常較小，無需分批處理
-            const batch = queue;
-            queue = new Set();
+            const items = Array.from(queue);
+            queue.clear();
             scheduled = false;
-            for (const el of batch) processElement(el);
+
+            // 分批處理：每幀最多處理 BATCH_SIZE 個元素，避免無限滾動頁面卡頓
+            const batchEnd = Math.min(items.length, BATCH_SIZE);
+            for (let i = 0; i < batchEnd; i++) {
+                processElement(items[i]);
+            }
+
+            // 超出批次的元素放回 queue，排定下一幀繼續
+            for (let i = batchEnd; i < items.length; i++) {
+                queue.add(items[i]);
+            }
+
+            if (queue.size && !scheduled) {
+                scheduled = true;
+                requestAnimationFrame(flush);
+            }
         }
 
         // 合併文字元素與 icon 候選選擇器，讓動態新增的 icon 也能被偵測
-        const observerSelector = `${selector}, ${iconCandidateSelector}`;
+        const observerSelector = `${TEXT_ELEMENT_SELECTOR}, ${iconCandidateSelector}`;
 
         new MutationObserver(mutations => {
             for (let i = 0; i < mutations.length; i++) {
